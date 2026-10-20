@@ -4,14 +4,13 @@ import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Radio, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { isSupabaseConfigured } from '@/lib/supabase';
+import { isFirebaseConfigured } from '@/lib/firebase';
 
 export function SignUpPage() {
   const navigate = useNavigate();
-  const { signUpWithEmail, verifySignupOtp, resendConfirmation } = useAuth();
+  const { signUpWithEmail, resendVerification } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [verificationCode, setVerificationCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -21,21 +20,6 @@ export function SignUpPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (confirmationEmail) {
-      if (!/^\d{6}$/.test(verificationCode)) {
-        setError('Enter the 6-digit code from your confirmation email.');
-        return;
-      }
-      setLoading(true);
-      const result = await verifySignupOtp(confirmationEmail, verificationCode);
-      setLoading(false);
-      if (result.error) {
-        setError(result.error);
-      } else {
-        navigate('/dashboard');
-      }
-      return;
-    }
     setMessage(null);
     if (password.length < 8) {
       setError('Password must be at least 8 characters.');
@@ -49,7 +33,6 @@ export function SignUpPage() {
     } else if (res.message) {
       setMessage(res.message);
       setConfirmationEmail(email.trim());
-      setVerificationCode('');
     } else {
       navigate('/dashboard');
     }
@@ -59,10 +42,13 @@ export function SignUpPage() {
     if (!confirmationEmail) return;
     setResending(true);
     setError(null);
-    const result = await resendConfirmation(confirmationEmail);
+    const result = await resendVerification(confirmationEmail, password);
     setResending(false);
     if (result.error) setError(result.error);
-    if (result.message) setMessage(result.message);
+    if (result.message) {
+      setMessage(result.message);
+      if (result.message.includes('already verified')) navigate('/dashboard');
+    }
   };
 
   return (
@@ -86,9 +72,9 @@ export function SignUpPage() {
       <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md px-4">
         <Card>
           <CardContent className="pt-6 space-y-4">
-            {!isSupabaseConfigured && (
+            {!isFirebaseConfigured && (
               <p className="rounded-lg border border-border p-3 text-xs text-muted dark:border-border-dark dark:text-muted-dark">
-                Email verification is unavailable in local demo mode. Configure Supabase to create an account.
+                Email verification is unavailable in local demo mode. Configure Firebase to create an account.
               </p>
             )}
             {error && (
@@ -107,7 +93,7 @@ export function SignUpPage() {
                   <button
                     type="button"
                     onClick={handleResendConfirmation}
-                    disabled={resending}
+                    disabled={resending || !password}
                     className="ml-6 mt-2 font-medium underline disabled:opacity-60"
                   >
                     {resending ? 'Sending...' : 'Resend confirmation email'}
@@ -118,62 +104,40 @@ export function SignUpPage() {
 
             {confirmationEmail && (
               <p className="text-xs text-muted dark:text-muted-dark">
-                Enter the 6-digit code sent to <strong>{confirmationEmail}</strong>.
+                Open the Firebase verification link sent to <strong>{confirmationEmail}</strong>, then return here to sign in.
               </p>
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              {confirmationEmail ? (
-                <div>
-                  <label htmlFor="signup-verification-code" className="text-xs font-medium text-ink dark:text-white">
-                    Email confirmation code
-                  </label>
-                  <input
-                    id="signup-verification-code"
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    pattern="[0-9]{6}"
-                    maxLength={6}
-                    required
-                    autoFocus
-                    value={verificationCode}
-                    onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="123456"
-                    className="mt-1 w-full rounded-lg border border-border bg-canvas px-3 py-2 text-sm tracking-[0.3em] text-ink placeholder:text-muted focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand dark:border-border-dark dark:bg-canvas-dark dark:text-white"
-                  />
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <label className="text-xs font-medium text-ink dark:text-white">
-                      Email Address
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="name@company.com"
-                      className="mt-1 w-full rounded-lg border border-border bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand dark:border-border-dark dark:bg-canvas-dark dark:text-white"
-                    />
-                  </div>
+              <div>
+                <label className="text-xs font-medium text-ink dark:text-white">
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@company.com"
+                  disabled={loading}
+                  className="mt-1 w-full rounded-lg border border-border bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:opacity-60 dark:border-border-dark dark:bg-canvas-dark dark:text-white"
+                />
+              </div>
 
-                  <div>
-                    <label className="text-xs font-medium text-ink dark:text-white">
-                      Password
-                    </label>
-                    <input
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="At least 8 characters"
-                      className="mt-1 w-full rounded-lg border border-border bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand dark:border-border-dark dark:bg-canvas-dark dark:text-white"
-                    />
-                  </div>
-                </>
-              )}
+              <div>
+                <label className="text-xs font-medium text-ink dark:text-white">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  disabled={loading}
+                  className="mt-1 w-full rounded-lg border border-border bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand disabled:opacity-60 dark:border-border-dark dark:bg-canvas-dark dark:text-white"
+                />
+              </div>
 
               <Button
                 type="submit"
@@ -181,11 +145,7 @@ export function SignUpPage() {
                 disabled={loading}
                 className="w-full gap-2"
               >
-                <span>
-                  {loading
-                    ? confirmationEmail ? 'Verifying...' : 'Creating Account...'
-                    : confirmationEmail ? 'Verify Email' : 'Sign Up'}
-                </span>
+                <span>{loading ? 'Creating Account...' : 'Sign Up'}</span>
                 <ArrowRight className="h-3.5 w-3.5" />
               </Button>
             </form>
@@ -194,7 +154,6 @@ export function SignUpPage() {
                 type="button"
                 onClick={() => {
                   setConfirmationEmail(null);
-                  setVerificationCode('');
                   setMessage(null);
                   setError(null);
                 }}

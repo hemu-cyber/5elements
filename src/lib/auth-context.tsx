@@ -1,7 +1,17 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import {
+  createUserWithEmailAndPassword,
+  getIdTokenResult,
+  onAuthStateChanged,
+  reload,
+  sendEmailVerification,
+  signInWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  User,
+} from 'firebase/auth';
 import { Profile, UserRole } from '@/types/database';
 import { getProfiles, saveProfile } from './store';
-import { supabase, isSupabaseConfigured } from './supabase';
+import { firebaseAuth, isFirebaseConfigured } from './firebase';
 
 interface AuthContextType {
   user: Profile | null;
@@ -10,10 +20,9 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   loginDemo: (role: UserRole) => Promise<void>;
-  loginWithEmail: (email: string, password: string) => Promise<{ error?: string }>;
+  loginWithEmail: (email: string, password: string) => Promise<{ error?: string; message?: string }>;
   signUpWithEmail: (email: string, password: string) => Promise<{ error?: string; message?: string }>;
-  verifySignupOtp: (email: string, token: string) => Promise<{ error?: string }>;
-  resendConfirmation: (email: string) => Promise<{ error?: string; message?: string }>;
+  resendVerification: (email: string, password: string) => Promise<{ error?: string; message?: string }>;
   signOut: () => Promise<void>;
   theme: 'light' | 'dark';
   toggleTheme: () => void;
@@ -33,22 +42,31 @@ const DEMO_ADMIN_PROFILE: Profile = {
   created_at: '2026-09-01T00:00:00Z',
 };
 
-async function getSupabaseProfile(userId: string, email: string): Promise<Profile> {
-  const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
-  if (error) throw error;
-  return data || {
-    id: userId,
-    email,
-    role: 'user',
-    created_at: new Date().toISOString(),
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+async function toProfile(firebaseUser: User): Promise<Profile> {
+  const token = await getIdTokenResult(firebaseUser, true);
+  const role: UserRole = token.claims.admin === true || token.claims.role === 'admin'
+    ? 'admin'
+    : 'user';
+  return {
+    id: firebaseUser.uid,
+    email: firebaseUser.email || '',
+    role,
+    created_at: firebaseUser.metadata.creationTime || new Date().toISOString(),
   };
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+async function sendVerificationEmail(user: User): Promise<void> {
+  await sendEmailVerification(user, {
+    url: `${window.location.origin}/login`,
+    handleCodeInApp: false,
+  });
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<Profile | null>(() => {
-    if (isSupabaseConfigured) return null;
+    if (isFirebaseConfigured) return null;
     try {
       const cached = localStorage.getItem('linkpulse_session');
       if (!cached) return null;
@@ -70,40 +88,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [theme]);
 
   useEffect(() => {
-    let mounted = true;
-    async function initAuth() {
-      if (isSupabaseConfigured) {
-        try {
-          const { data, error } = await supabase.auth.getSession();
-          if (error) throw error;
-          if (data.session?.user && mounted) {
-            if (!data.session.user.email_confirmed_at) {
-              const { error: signOutError } = await supabase.auth.signOut();
-              if (signOutError) throw signOutError;
-              if (mounted) setUser(null);
-            } else {
-              const profile = await getSupabaseProfile(
-                data.session.user.id,
-                data.session.user.email || ''
-              );
-              if (mounted) setUser(profile);
-            }
-          }
-        } catch (error) {
-          console.error('Unable to restore Supabase session:', error);
-        }
-      }
-      if (mounted) setIsLoading(false);
+    if (!firebaseAuth) {
+      setIsLoading(false);
+      return;
     }
-    void initAuth();
+
+    let mounted = true;
+    const unsubscribe = onAuthStateChanged(firebaseAuth, (firebaseUser) => {
+      void (async () => {
+        try {
+          if (!firebaseUser) {
+            if (mounted) setUser(null);
+            return;
+          }
+          await reload(firebaseUser);
+          if (!firebaseUser.emailVerified) {
+            if (mounted) setUser(null);
+            return;
+          }
+          const profile = await toProfile(firebaseUser);
+          if (mounted) setUser(profile);
+        } catch (error) {
+          console.error('Unable to restore Firebase session:', error);
+          if (mounted) setUser(null);
+        } finally {
+          if (mounted) setIsLoading(false);
+        }
+      })();
+    }, (error) => {
+      console.error('Unable to observe Firebase authentication state:', error);
+      if (mounted) setIsLoading(false);
+    });
+
     return () => {
       mounted = false;
+      unsubscribe();
     };
   }, []);
 
   const loginDemo = async (role: UserRole) => {
-    if (isSupabaseConfigured) {
-      throw new Error('Demo accounts are only available when Supabase is not configured.');
+    if (isFirebaseConfigured) {
+      throw new Error('Demo accounts are only available when Firebase is not configured.');
     }
     const profile = role === 'admin' ? DEMO_ADMIN_PROFILE : DEMO_USER_PROFILE;
     saveProfile(profile);
@@ -111,24 +136,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('linkpulse_session', JSON.stringify(profile));
   };
 
-  const loginWithEmail = async (email: string, password: string): Promise<{ error?: string }> => {
+  const loginWithEmail = async (
+    email: string,
+    password: string
+  ): Promise<{ error?: string; message?: string }> => {
+    if (!firebaseAuth) {
+      return { error: 'Email sign-in requires Firebase. Configure it first, or use a demo workspace.' };
+    }
     setIsLoading(true);
     try {
-      if (!isSupabaseConfigured) {
-        return { error: 'Email sign-in requires Supabase. Configure it first, or use a demo workspace.' };
+      const credential = await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
+      await reload(credential.user);
+      if (!credential.user.emailVerified) {
+        await sendVerificationEmail(credential.user);
+        await firebaseSignOut(firebaseAuth);
+        return { message: 'Your email is not verified yet. We sent you a verification link.' };
       }
-
-      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (error) return { error: error.message };
-      if (!data.user) return { error: 'The authentication provider did not return a user.' };
-      if (!data.user.email_confirmed_at) {
-        const { error: signOutError } = await supabase.auth.signOut();
-        if (signOutError) throw signOutError;
-        setUser(null);
-        return { error: 'Please confirm your email address before signing in.' };
-      }
-      const profile = await getSupabaseProfile(data.user.id, data.user.email || email);
-      setUser(profile);
+      setUser(await toProfile(credential.user));
       return {};
     } catch (error) {
       return { error: error instanceof Error ? error.message : 'Unable to sign in.' };
@@ -141,31 +165,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     email: string,
     password: string
   ): Promise<{ error?: string; message?: string }> => {
+    if (!firebaseAuth) {
+      return { error: 'Email verification requires Firebase. Configure it first to create an account.' };
+    }
     setIsLoading(true);
     try {
-      const normalizedEmail = email.trim().toLowerCase();
-      if (!isSupabaseConfigured) {
-        return { error: 'Email verification requires Supabase. Configure it first to create an account.' };
+      const credential = await createUserWithEmailAndPassword(firebaseAuth, email.trim(), password);
+      try {
+        await sendVerificationEmail(credential.user);
+      } catch (error) {
+        await firebaseSignOut(firebaseAuth);
+        throw error;
       }
-
-      const { data, error } = await supabase.auth.signUp({
-        email: normalizedEmail,
-        password,
-        options: { data: { role: 'user' } },
-      });
-      if (error) return { error: error.message };
-      if (data.user && !data.user.email_confirmed_at && data.session) {
-        const { error: signOutError } = await supabase.auth.signOut();
-        if (signOutError) throw signOutError;
-        setUser(null);
-        return { message: 'Account created. Enter the confirmation code sent to your email.' };
-      }
-      if (!data.session) {
-        return { message: 'Account created. Enter the confirmation code sent to your email.' };
-      }
-      if (!data.user) return { error: 'The authentication provider did not return a user.' };
-      setUser(await getSupabaseProfile(data.user.id, data.user.email || normalizedEmail));
-      return {};
+      await firebaseSignOut(firebaseAuth);
+      setUser(null);
+      return { message: 'Account created. Check your email and click the Firebase verification link.' };
     } catch (error) {
       return { error: error instanceof Error ? error.message : 'Unable to create the account.' };
     } finally {
@@ -173,56 +187,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const verifySignupOtp = async (
+  const resendVerification = async (
     email: string,
-    token: string
-  ): Promise<{ error?: string }> => {
+    password: string
+  ): Promise<{ error?: string; message?: string }> => {
+    if (!firebaseAuth) {
+      return { error: 'Email verification requires Firebase. Configure it first.' };
+    }
     setIsLoading(true);
     try {
-      if (!isSupabaseConfigured) {
-        return { error: 'Email verification requires Supabase. Configure it first.' };
+      const credential = await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
+      await reload(credential.user);
+      if (credential.user.emailVerified) {
+        setUser(await toProfile(credential.user));
+        return { message: 'This email is already verified. You are signed in.' };
       }
-      const { data, error } = await supabase.auth.verifyOtp({
-        email: email.trim().toLowerCase(),
-        token: token.trim(),
-        type: 'signup',
-      });
-      if (error) return { error: error.message };
-      if (!data.user) return { error: 'The verification response did not include a user.' };
-      if (!data.user.email_confirmed_at) {
-        return { error: 'Supabase did not confirm this email. Check the code and try again.' };
+      try {
+        await sendVerificationEmail(credential.user);
+      } finally {
+        await firebaseSignOut(firebaseAuth);
       }
-      setUser(await getSupabaseProfile(data.user.id, data.user.email || email));
-      return {};
+      return { message: 'A new Firebase verification link has been sent.' };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unable to verify the email code.' };
+      return { error: error instanceof Error ? error.message : 'Unable to resend the verification email.' };
     } finally {
       setIsLoading(false);
     }
   };
 
-  const resendConfirmation = async (
-    email: string
-  ): Promise<{ error?: string; message?: string }> => {
-    if (!isSupabaseConfigured) {
-      return { error: 'Email verification requires Supabase. Configure it first.' };
-    }
-    try {
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
-        email: email.trim().toLowerCase(),
-      });
-      if (error) return { error: error.message };
-      return { message: 'A new confirmation email has been sent.' };
-    } catch (error) {
-      return { error: error instanceof Error ? error.message : 'Unable to resend the confirmation email.' };
-    }
-  };
-
   const signOut = async () => {
-    if (isSupabaseConfigured) {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+    if (firebaseAuth) {
+      await firebaseSignOut(firebaseAuth);
     }
     setUser(null);
     localStorage.removeItem('linkpulse_session');
@@ -242,8 +237,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loginDemo,
         loginWithEmail,
         signUpWithEmail,
-        verifySignupOtp,
-        resendConfirmation,
+        resendVerification,
         signOut,
         theme,
         toggleTheme,

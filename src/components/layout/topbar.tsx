@@ -2,7 +2,7 @@ import { Menu, Sun, Moon, Plus, LogOut, ShieldCheck, User as UserIcon } from 'lu
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
-import { isSupabaseConfigured } from '@/lib/supabase';
+import { isFirebaseConfigured } from '@/lib/firebase';
 
 interface TopbarProps {
   onOpenSidebar: () => void;
@@ -34,7 +34,7 @@ export function Topbar({ onOpenSidebar }: TopbarProps) {
       {/* Right Controls */}
       <div className="flex items-center gap-2.5">
         {/* Fast Role Switcher for Hackathon Demo */}
-        {!isSupabaseConfigured && <div className="hidden md:flex items-center rounded-lg border border-border bg-canvas p-0.5 text-xs font-medium dark:border-border-dark dark:bg-canvas-dark">
+        {!isFirebaseConfigured && <div className="hidden md:flex items-center rounded-lg border border-border bg-canvas p-0.5 text-xs font-medium dark:border-border-dark dark:bg-canvas-dark">
           <button
             onClick={() => loginDemo('user')}
             className={`flex items-center gap-1 rounded-md px-2.5 py-1 transition-all ${

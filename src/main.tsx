@@ -12,6 +12,11 @@ import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/500.css';
 
 import './index.css';
+import { firebaseAnalytics } from './lib/firebase';
+
+void firebaseAnalytics.catch((error: unknown) => {
+  console.error('Unable to initialize Firebase Analytics:', error);
+});
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

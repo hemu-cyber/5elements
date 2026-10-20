@@ -3,15 +3,18 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
-import { Radio, ArrowRight, ShieldCheck, User, AlertCircle } from 'lucide-react';
-import { isSupabaseConfigured } from '@/lib/supabase';
+import { Radio, ArrowRight, ShieldCheck, User, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { isFirebaseConfigured } from '@/lib/firebase';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { loginDemo, loginWithEmail } = useAuth();
+  const { loginDemo, loginWithEmail, resendVerification } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleDemoClick = async (role: 'user' | 'admin') => {
@@ -29,14 +32,28 @@ export function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setMessage(null);
     setLoading(true);
     const res = await loginWithEmail(email, password);
     setLoading(false);
     if (res.error) {
       setError(res.error);
+    } else if (res.message) {
+      setMessage(res.message);
+      setVerificationEmail(email.trim());
     } else {
       navigate('/dashboard');
     }
+  };
+
+  const handleResendVerification = async () => {
+    if (!verificationEmail) return;
+    setResending(true);
+    setError(null);
+    const result = await resendVerification(verificationEmail, password);
+    setResending(false);
+    if (result.error) setError(result.error);
+    if (result.message) setMessage(result.message);
   };
 
   return (
@@ -52,9 +69,9 @@ export function LoginPage() {
         <h2 className="mt-4 font-heading text-2xl font-bold tracking-tight text-ink dark:text-white">
           Sign in to your account
         </h2>
-        {!isSupabaseConfigured && (
+        {!isFirebaseConfigured && (
           <p className="mt-1 text-xs text-muted dark:text-muted-dark">
-            Email sign-in requires Supabase. Use a demo workspace for local testing.
+            Email sign-in requires Firebase. Use a demo workspace for local testing.
           </p>
         )}
       </div>
@@ -62,7 +79,7 @@ export function LoginPage() {
       <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md px-4">
         <Card>
           <CardContent className="pt-6 space-y-4">
-            {!isSupabaseConfigured && <div className="grid grid-cols-2 gap-3">
+            {!isFirebaseConfigured && <div className="grid grid-cols-2 gap-3">
               <Button
                 variant="secondary"
                 size="sm"
@@ -85,7 +102,7 @@ export function LoginPage() {
               </Button>
             </div>}
 
-            {!isSupabaseConfigured && <div className="relative flex items-center justify-center text-xs">
+            {!isFirebaseConfigured && <div className="relative flex items-center justify-center text-xs">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-border dark:border-border-dark" />
               </div>
@@ -98,6 +115,25 @@ export function LoginPage() {
               <div className="rounded-lg bg-danger-tint p-3 text-xs text-danger flex items-center gap-2">
                 <AlertCircle className="h-4 w-4 shrink-0" />
                 <span>{error}</span>
+              </div>
+            )}
+
+            {message && (
+              <div role="status" className="rounded-lg bg-success-tint p-3 text-xs text-success">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  <span>{message}</span>
+                </div>
+                {verificationEmail && (
+                  <button
+                    type="button"
+                    onClick={handleResendVerification}
+                    disabled={resending || !password}
+                    className="ml-6 mt-2 font-medium underline disabled:opacity-60"
+                  >
+                    {resending ? 'Sending...' : 'Resend verification link'}
+                  </button>
+                )}
               </div>
             )}
 

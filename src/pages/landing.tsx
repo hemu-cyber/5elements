@@ -9,7 +9,7 @@ import {
   Zap,
   BarChart3,
 } from 'lucide-react';
-import { isSupabaseConfigured } from '@/lib/supabase';
+import { isFirebaseConfigured } from '@/lib/firebase';
 
 export function LandingPage() {
   const navigate = useNavigate();
@@ -41,10 +41,10 @@ export function LandingPage() {
             <Button
               variant="primary"
               size="sm"
-              onClick={() => isSupabaseConfigured ? navigate('/signup') : handleTryDemo('user')}
+              onClick={() => isFirebaseConfigured ? navigate('/signup') : handleTryDemo('user')}
               className="gap-1.5"
             >
-              <span>{isSupabaseConfigured ? 'Create Account' : 'Try Demo'}</span>
+              <span>{isFirebaseConfigured ? 'Create Account' : 'Try Demo'}</span>
               <ArrowRight className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -54,7 +54,7 @@ export function LandingPage() {
       {/* Hero Section */}
       <section className="flex-1 px-6 py-16 md:py-24 max-w-[1280px] mx-auto flex flex-col items-center text-center">
         <Badge variant="brand" className="mb-4 text-xs font-mono px-3 py-1">
-          Hackathon Edition • Netlify Edge + Supabase
+          Hackathon Edition • Netlify Edge + Firebase Auth
         </Badge>
         <h1 className="font-heading text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-ink dark:text-white max-w-3xl">
           Deterministic Link Control. Real-Time Visitor Telemetry.
@@ -64,7 +64,7 @@ export function LandingPage() {
         </p>
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
-          {isSupabaseConfigured ? (
+          {isFirebaseConfigured ? (
             <>
               <Button variant="primary" size="lg" onClick={() => navigate('/signup')} className="gap-2 text-sm">
                 <span>Create your account</span>

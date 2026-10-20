@@ -222,7 +222,7 @@ export function AnalyticsPage() {
       />
 
       <p className="text-xs text-muted dark:text-muted-dark">
-        Link and click data is currently stored in this browser. Supabase authentication does not sync analytics across devices.
+        Link and click data is currently stored in this browser. Firebase authentication does not sync analytics across devices.
       </p>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3 dark:border-border-dark">

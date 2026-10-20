@@ -30,14 +30,14 @@ This log tracks every design decision, assumption, and implementation choice acr
 - **Decision**: Use the pre-installed Google Chrome binary at `C:\Program Files\Google\Chrome\Application\chrome.exe` in headless mode (`--headless=new --screenshot=... --window-size=1440,900` and `--window-size=390,844`) to capture exact visual regression screenshots for 1440px and 390px responsive checks.
 - **Reason**: Instant execution, native zero-overhead browser rendering without waiting on Playwright binary downloads.
 
-### DEC-004: Supabase Client Architecture
+### DEC-004: Firebase Authentication and Supabase Data Schema
 - **Decision**:
-  - Client side: Shared Supabase browser client initialized with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
-  - Server functions / Edge functions: Server client initialized with `SUPABASE_SERVICE_ROLE_KEY` to perform administrative queries, atomic click increments, and bypass RLS where appropriate (e.g. public link resolution and logging).
-- **Reason**: Adheres to the security perimeter specified in the brief.
+  - Client-side authentication: Firebase Authentication email/password with verification links, initialized from the public Firebase Web App configuration variables.
+  - Supabase migrations are retained as a future database schema; Firebase ID tokens are not Supabase Auth sessions and do not satisfy Supabase RLS policies.
+- **Reason**: The app uses Firebase Auth for verified user identity while avoiding any client-exposed administrator credentials.
 
-### DEC-005: Local Development & Fallbacks for Supabase
-- **Decision**: Provide both direct Supabase connection capabilities via environment variables and robust local fallback / mock storage mode when Supabase credentials are empty during development and test rendering, ensuring tests and previews never crash or stall.
+### DEC-005: Local Development & Fallbacks for Firebase
+- **Decision**: When Firebase Web App configuration is absent, retain the browser-local demo mode so local previews remain usable without a Firebase project.
 - **Reason**: Enables continuous headless verification and local development reliability.
 
 ### DEC-006: Edge Function Path & SPA Routing

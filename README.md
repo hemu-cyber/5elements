@@ -12,14 +12,15 @@ LinkPulse is a high-performance URL shortener, link management platform, and ana
 - **Frontend**: Vite + React 18 + TypeScript + Tailwind CSS + Lucide Icons + TanStack Query + Recharts
 - **API**: Netlify Functions (`netlify/functions`)
 - **Redirects**: Netlify Edge Functions (`netlify/edge-functions`)
-- **Database & Auth**: Supabase Postgres with Row Level Security (RLS) and atomic SQL RPC functions.
+- **Authentication**: Firebase Authentication with email verification links.
+- **Database schema**: Supabase Postgres migrations are retained for a future data backend; browser-local data is used by the current UI.
 
 ## Getting Started
 
 ### Prerequisites
 - Node.js 18+ (tested on Node v24)
 - npm 9+
-- Supabase account (or local Supabase instance)
+- Firebase account; Supabase is optional for the retained database schema
 
 ### Installation
 ```bash
@@ -32,7 +33,7 @@ npm install
 
 # Configure environment
 cp .env.example .env.local
-# Update .env.local with your Supabase credentials
+# Update .env.local with your Firebase web app configuration
 ```
 
 ### Running Locally
@@ -44,43 +45,25 @@ npm run dev
 npx netlify dev
 ```
 
-### Supabase email verification and first admin
+### Firebase email verification and authentication
 
-Email/password sign-up and sign-in require a Supabase project. Without Supabase credentials, only the browser-local demo accounts are available; these are not real email accounts and must not be used for production.
+Firebase Authentication handles email/password sign-up and sign-in. New users receive Firebase's email verification link; unverified accounts cannot sign in. Supabase Auth is not used by the frontend.
 
-1. Create a Supabase project.
-2. In **Authentication → Providers → Email**, enable email confirmations.
-3. In **Authentication → URL Configuration**, set the Site URL to your app URL and add the local and deployed app URLs to the redirect allow list (for example, `http://localhost:5173/**` and `https://your-site.netlify.app/**`).
-4. In **Authentication → Email Templates → Confirm signup**, update the template to display Supabase's six-digit token using `{{ .Token }}`. For example:
+1. Open the [Firebase Console](https://console.firebase.google.com/) and create a Firebase project.
+2. In **Project settings → General → Your apps**, add a **Web app** and copy its configuration values.
+3. In **Authentication → Sign-in method**, enable **Email/Password**.
+4. In **Authentication → Settings → Authorized domains**, ensure `localhost` and your deployed site's domain are listed.
+5. In VS Code, copy `.env.example` to `.env.local`. Fill in the `VITE_FIREBASE_*` values from your Firebase web app configuration, including `VITE_FIREBASE_MEASUREMENT_ID` to enable Analytics. These browser config values are not Admin SDK credentials. `.env.local` is ignored by Git. Restart `npm run dev` after saving.
+6. Run the app, sign up with an inbox you can access, and click Firebase's verification link from that same browser. The link returns to `/login`; sign in with the email and password you chose.
+7. In **Authentication → Templates**, customize the verification email if desired. Firebase's default verification template includes a working link; for production, use your own authorized domain for the app and Firebase action links.
 
-   ```html
-   <h2>Confirm your LinkPulse account</h2>
-   <p>Enter this code in the sign-up screen to verify your email:</p>
-   <p style="font-size: 24px; font-weight: bold; letter-spacing: 6px;">{{ .Token }}</p>
-   <p>This code expires. If you did not request it, you can ignore this email.</p>
-   ```
+Firebase Analytics initializes when the browser supports it and a Measurement ID is configured. Update your privacy notice and obtain any consent required in your users' regions before deploying analytics.
 
-   Save the template. The sign-up screen accepts this six-digit code and verifies it with Supabase; the default confirmation-link template does not provide the code-entry flow.
-5. In **SQL Editor**, execute the files in `supabase/migrations/` in filename order. The role-hardening migration prevents users from assigning themselves admin privileges.
-6. In VS Code, copy `.env.example` to `.env.local`. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from **Project Settings → API**, then restart `npm run dev`. The anon key is intended for the browser; never put a service-role key in a `VITE_` variable or frontend code.
-7. Sign up with the admin email you want to use and enter the code from its confirmation email. Then in Supabase **SQL Editor**, promote that confirmed account using the database owner connection:
-
-   ```sql
-   BEGIN;
-   ALTER TABLE public.profiles DISABLE TRIGGER protect_profile_role;
-   UPDATE public.profiles
-   SET role = 'admin'
-   WHERE lower(email) = lower('Admin123@gmail.com');
-   ALTER TABLE public.profiles ENABLE TRIGGER protect_profile_role;
-   COMMIT;
-   ```
-
-   Run this only in the Supabase SQL Editor after confirming that the email exists in `public.profiles`. Use a strong, private password in Supabase; do not store passwords in this repository or reuse a demo password in production. Sign in again after promotion to load the new role.
-8. For deployed email delivery, configure a trusted SMTP provider under the Supabase project's authentication/email settings. The built-in email service is intended for testing and may only deliver to authorized addresses.
+Admin authorization uses Firebase ID token custom claims (`admin: true` or `role: "admin"`). Set those claims only from a trusted server using the Firebase Admin SDK; never add a client-side admin role switch for real accounts. Supabase SQL profile roles do not grant Firebase admin access.
 
 ### Data and analytics scope
 
-Links, campaigns, clicks, and moderation data are currently stored in the browser's local storage, even when Supabase authentication is enabled. Analytics now uses recorded redirect events from that browser and refreshes every five seconds; it does not use seeded traffic or invented location data. It is not yet shared across devices or users. Supabase-backed link persistence and server-side click ingestion must be connected before deploying this as a shared production analytics service.
+Links, campaigns, clicks, and moderation data are currently stored in the browser's local storage. Analytics uses recorded redirect events from that browser and refreshes every five seconds; it does not use seeded traffic or invented location data. It is not shared across devices or users. Supabase migrations remain as a database schema, but Firebase ID tokens are not Supabase Auth sessions; connect a trusted backend or Firebase database before using Supabase Row Level Security with Firebase-authenticated users.
 
 ## License
 MIT
